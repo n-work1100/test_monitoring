@@ -47,6 +47,12 @@ $COMPOSE run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
 echo "==> (re)start stack"
 $COMPOSE up -d --build
 
+# nagios/etc змонтований з хоста: `up -d` не перезапускає вже працюючий
+# контейнер, тому зміни в конфігу не застосуються без явного restart.
+# restart зберігає контейнер і /opt/nagios/var (retention), downtime ~2-3 c.
+echo "==> restart nagios (перечитати конфіг)"
+$COMPOSE restart nagios
+
 echo "==> стан"
 $COMPOSE ps
 echo "OK. UI: http://<host>:8080/nagios/"

@@ -59,6 +59,11 @@ docker compose start sim-camera
 
 Очікування: у Telegram прийде `🛑 CRITICAL cam-lab-01 / PING`, після старту — `✅ OK`.
 
+Якщо хоста немає (DOWN), сервісні нотифікації **не** надсилаються: ядро примусово
+переводить сервіси в HARD і шле лише один `HOST NOTIFICATION` — це штатна поведінка
+(`notifications.c`), а не зламаний контакт. Тому в лозі під час такого тесту видно
+`SERVICE ALERT`, але не `SERVICE NOTIFICATION`; перевіряти треба `HOST NOTIFICATION`.
+
 ## 4. Типові проблеми
 
 | Симптом | Причина | Рішення |
@@ -70,6 +75,8 @@ docker compose start sim-camera
 | алерти приходять пачкою при падінні комутатора | немає `hostdependency` | перевірити `generated/dependencies.cfg` (генерується за `site`) |
 | `snmpget` пише `Cannot find module (...MIB)`, `Bad operator (INTEGER)` | в образі неповний набір MIB (net-snmp у `jasonrivers/nagios`) | на діагностику не впливає: працюйте числовими OID (`-On`) і ховайте шум `2>/dev/null` |
 | `sysDescr` показує `Linux <container-id>` замість `sim-switch` | у симуляторі sysDescr береться з ядра контейнера, однаковий для обох | ідентичність пристрою — `sysName` (`1.3.6.1.2.1.1.5.0`), заданий у `sim/*/snmpd.conf` |
+| у лозі є `SERVICE ALERT ... CRITICAL;HARD;1`, але немає `SERVICE NOTIFICATION` | хост уже в HARD-DOWN: ядро примусово переводить сервіси в HARD і **не** шле по них нотифікації (`notifications.c`: "if the host is down or unreachable…") | це задум Nagios, не помилка; при падінні хоста приходить один `HOST NOTIFICATION`, а не N сервісних |
+| після рестарту пристрою `SNMP-Uptime` не дає WARNING | пороги вказані в секундах, а `check_snmp` для Timeticks порівнює **тіки** (1/100 c) | пороги в тіках: `-w 30000:` (5 хв) `-c 6000:` (1 хв) |
 
 ## 5. Додати `check_nwc_health` (порти, помилки, CPU, PoE)
 
