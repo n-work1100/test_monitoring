@@ -44,6 +44,10 @@ UI: `http://<ip-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `na
 docker compose exec nagios /opt/nagios/libexec/check_snmp \
   -H 172.30.0.11 -P 2c -C lab_ro_c0mm -o 1.3.6.1.2.1.1.3.0 -l Uptime
 
+# хто саме відповів (sysName, а не sysDescr — див. розділ 4)
+docker compose exec nagios snmpget -v2c -c lab_ro_c0mm -r 1 -t 3 -On \
+  172.30.0.11 1.3.6.1.2.1.1.5.0 2>/dev/null
+
 # порти камери
 docker compose exec nagios /opt/nagios/libexec/check_tcp -H 172.30.0.21 -p 554
 
@@ -64,6 +68,8 @@ docker compose start sim-camera
 | `resource.cfg` порожній / `$USER5$` невідомий | не виконано `deploy.sh` (він рендерить файл) | `./tools/deploy.sh` або `make validate` |
 | Telegram мовчить | бот не в групі / `chat_id` неправильний / нотифікації не дозволені | перевірити `curl .../sendMessage` вручну; у `10-contacts.cfg` `*_notifications_enabled 1` |
 | алерти приходять пачкою при падінні комутатора | немає `hostdependency` | перевірити `generated/dependencies.cfg` (генерується за `site`) |
+| `snmpget` пише `Cannot find module (...MIB)`, `Bad operator (INTEGER)` | в образі неповний набір MIB (net-snmp у `jasonrivers/nagios`) | на діагностику не впливає: працюйте числовими OID (`-On`) і ховайте шум `2>/dev/null` |
+| `sysDescr` показує `Linux <container-id>` замість `sim-switch` | у симуляторі sysDescr береться з ядра контейнера, однаковий для обох | ідентичність пристрою — `sysName` (`1.3.6.1.2.1.1.5.0`), заданий у `sim/*/snmpd.conf` |
 
 ## 5. Додати `check_nwc_health` (порти, помилки, CPU, PoE)
 
