@@ -22,6 +22,10 @@ services:
       - ./nagios/etc:/opt/nagios/etc
       # скрипти нотифікацій (notify_telegram.sh) — read-only
       - ./tools:/opt/nagios-config/tools:ro
+      # стан і логи Nagios (nagios.log, retention.dat, perfdata).
+      # Без іменованого тому це анонімний volume: `up --force-recreate`
+      # (напр. після зміни .env) створює новий — історія/статуси зникають.
+      - nagios-var:/opt/nagios/var
     networks:
       - labnet
     depends_on:
@@ -55,3 +59,8 @@ networks:
       config:
         # «VLAN моніторингу»: окремий сегмент для SNMP/ICMP між Nagios і пристроями
         - subnet: 172.30.0.0/24
+
+volumes:
+  # Історія/статуси Nagios: переживають `up --force-recreate` і `down`
+  # (видаляється лише `docker compose down -v`).
+  nagios-var:
