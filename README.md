@@ -47,18 +47,21 @@
 
 ```bash
 # 1. Клонувати репозиторій
-git clone https://github.com/<ваш-логін>/nagios-snmp-lab.git
-cd nagios-snmp-lab
+git clone https://github.com/n-work1100/test_monitoring.git
+cd test_monitoring
 
 # 2. Налаштувати секрети (у Git НЕ потрапляють)
 cp .env.example .env
-nano .env            # SNMP_COMMUNITY, TG_TOKEN, TG_CHAT_ID
+nano .env            # SNMP_COMMUNITY (TG_TOKEN/TG_CHAT_ID — пізніше)
 
-# 3. Підняти стек (Nagios + 2 симулятори SNMP)
-docker compose up -d --build
+# 3. Підняти стек однією командою:
+#    pull -> gen -> resource.cfg -> nagios -v -> up
+sudo apt install -y python3-yaml     # потрібен генератору
+./tools/deploy.sh
 
-# 4. Перевірити конфігурацію Nagios
+# 4. Перевірити вручну (опційно)
 docker compose run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
+curl -sI http://localhost:8080/nagios/ | head -1     # очікуємо 401
 
 # 5. Відкрити UI
 #    http://<ip-ubuntu-vm>:8080/nagios/   (логін nagiosadmin / nagios)

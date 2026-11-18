@@ -3,18 +3,28 @@
 ## 1. Перший запуск на Ubuntu VM
 
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git python3-pip
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2 git python3-yaml
 sudo usermod -aG docker "$USER" && newgrp docker
 
-git clone https://github.com/<логін>/nagios-snmp-lab.git
-cd nagios-snmp-lab
-cp .env.example .env && nano .env      # SNMP_COMMUNITY, TG_TOKEN, TG_CHAT_ID
+git clone https://github.com/n-work1100/test_monitoring.git
+cd test_monitoring
+cp .env.example .env && nano .env      # SNMP_COMMUNITY; TG_TOKEN/TG_CHAT_ID — пізніше
 
-./tools/deploy.sh                      # pull + gen + nagios -v + up
+./tools/deploy.sh                      # pull + gen + resource.cfg + nagios -v + up
 ```
 
-UI: `http://<ip-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `nagios` (змінити:
+`deploy.sh` сам перевіряє передумови (docker, compose-plugin, `python3-yaml`), рендерить
+`nagios/etc/resource.cfg` з `.env` (права `644` — його читають CGI) і **спочатку** виконує
+`nagios -v`; при помилці конфігу рестарту не буде.
+
+UI: `http://<ip-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `nagios`
+(`nagios/etc/htpasswd.users` створюється автоматично при першому старті контейнера; змінити:
 `docker compose exec nagios htpasswd /opt/nagios/etc/htpasswd.users nagiosadmin`).
+
+Перевірка «живий чи ні» без браузера: `curl -sI http://localhost:8080/nagios/ | head -1`
+→ очікуємо `HTTP/1.1 401 Unauthorized` (Apache просить логін; `500` = проблема CGI,
+`connection refused` = контейнер не піднявся).
 
 ## 2. Telegram-бот (5 хвилин)
 

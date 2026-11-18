@@ -14,6 +14,9 @@ services:
       - "8080:80"
     env_file:
       - .env
+    environment:
+      # коректні таймстемпи в логах/нотифікаціях
+      - TZ=Europe/Kyiv
     volumes:
       # конфігурація (nagios.cfg, conf.d, resource.cfg)
       - ./nagios/etc:/opt/nagios/etc

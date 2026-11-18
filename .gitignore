@@ -2,6 +2,9 @@
 .env
 nagios/etc/resource.cfg
 
+# створюється автоматично start_nagios з образу (nagiosadmin / nagios)
+nagios/etc/htpasswd.users
+
 # рантайм Nagios
 nagios/var/
 nagios/etc/*.cache
