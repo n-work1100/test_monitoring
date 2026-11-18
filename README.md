@@ -131,7 +131,7 @@ PING + SNMP-Uptime + RTSP-554.
 ## 5. Структура репозиторію
 
 ```
-nagios-snmp-lab/
+test_monitoring/
 ├─ inventory/hosts.yml               # SOURCE OF TRUTH
 ├─ tools/
 │  ├─ gen.py                         # inventory -> nagios/etc/conf.d/generated
