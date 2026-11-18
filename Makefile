@@ -40,10 +40,10 @@ ps:
 	$(COMPOSE) ps
 
 deploy:
-	./tools/deploy.sh
+	bash ./tools/deploy.sh
 
 notify-test:
-	$(COMPOSE) exec nagios /opt/nagios-config/tools/notify_telegram.sh \
+	$(COMPOSE) exec nagios bash /opt/nagios-config/tools/notify_telegram.sh \
 		service PROBLEM cam-lab-01 RTSP-554 CRITICAL "make notify-test" "$$(date '+%F %T')"
 
 clean:
