@@ -1,0 +1,16 @@
+# секрети
+.env
+nagios/etc/resource.cfg
+
+# рантайм Nagios
+nagios/var/
+nagios/etc/*.cache
+nagios/etc/*.precache
+
+# python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

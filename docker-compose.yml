@@ -1,0 +1,54 @@
+##############################################################################
+# Nagios Core + симулятори SNMP-пристроїв (навчальна лабораторія)
+#
+#   docker compose up -d --build
+#   UI: http://localhost:8080/nagios/   (nagiosadmin / nagios)
+##############################################################################
+
+services:
+  nagios:
+    image: jasonrivers/nagios:latest
+    container_name: nagios
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    volumes:
+      # конфігурація (nagios.cfg, conf.d, resource.cfg)
+      - ./nagios/etc:/opt/nagios/etc
+      # скрипти нотифікацій (notify_telegram.sh) — read-only
+      - ./tools:/opt/nagios-config/tools:ro
+    networks:
+      - labnet
+    depends_on:
+      - sim-switch
+      - sim-camera
+
+  # --- симулятор комутатора: net-snmp, sysUpTime/sysDescr/ifNumber ----------
+  sim-switch:
+    build:
+      context: ./sim/snmpd
+    container_name: sim-switch
+    restart: unless-stopped
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.11
+
+  # --- симулятор IP-камери: snmpd + фейкові TCP 554 (RTSP) і 80 (web) ------
+  sim-camera:
+    build:
+      context: ./sim/camera
+    container_name: sim-camera
+    restart: unless-stopped
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.21
+
+networks:
+  labnet:
+    driver: bridge
+    ipam:
+      config:
+        # «VLAN моніторингу»: окремий сегмент для SNMP/ICMP між Nagios і пристроями
+        - subnet: 172.30.0.0/24

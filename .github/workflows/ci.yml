@@ -1,0 +1,77 @@
+name: nagios-config
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Генерація мусить бути актуальною, а конфіг — валідним для Nagios
+  # ---------------------------------------------------------------------------
+  config:
+    name: generate + nagios -v
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: python -m pip install --quiet pyyaml
+
+      - name: Regenerate from source of truth
+        run: python tools/gen.py
+
+      - name: Generated config must be committed
+        run: |
+          if ! git diff --quiet -- nagios/etc/conf.d/generated; then
+            echo "::error::nagios/etc/conf.d/generated відстає від inventory/hosts.yml — виконайте python tools/gen.py і закомітьте"
+            git --no-pager diff --stat
+            exit 1
+          fi
+
+      - name: Render dummy resource.cfg for validation
+        run: printf '$USER1$=/opt/nagios/libexec\n$USER5$=ci_dummy\n' > nagios/etc/resource.cfg
+
+      - name: nagios -v (object definitions)
+        run: |
+          docker run --rm --entrypoint nagios \
+            -v "$PWD/nagios/etc:/opt/nagios/etc:ro" \
+            jasonrivers/nagios:latest -v /opt/nagios/etc/nagios.cfg
+
+  # ---------------------------------------------------------------------------
+  # 2. Секрети не повинні потрапляти в історію
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # 3. Деплой (увімкнути, коли буде сервер із self-hosted runner або SSH-ключ)
+  #
+  # deploy:
+  #   needs: [config, secrets]
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   environment: production      # ручне підтвердження в GitHub UI
+  #   steps:
+  #     - name: SSH -> tools/deploy.sh
+  #       run: |
+  #         install -m 600 -D /dev/stdin ~/.ssh/id_ed25519 <<< "${{ secrets.DEPLOY_SSH_KEY }}"
+  #         ssh -o StrictHostKeyChecking=accept-new ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+  #           'cd ~/nagios-snmp-lab && ./tools/deploy.sh'
+  # ---------------------------------------------------------------------------
