@@ -45,7 +45,11 @@ echo "==> nagios -v (перевірка об'єктів)"
 $COMPOSE run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
 
 echo "==> (re)start stack"
-$COMPOSE up -d --build
+# Без --build: compose збирає образ лише тоді, коли його немає. Примусова
+# перезбірка на кожному деплої пересоздавала sim-* контейнери -> snmpd
+# стартував з нуля -> фейкові "перезавантаження" (uptime WARNING) і зайві
+# нотифікації. Явна перезбірка: make build.
+$COMPOSE up -d
 
 # nagios/etc змонтований з хоста: `up -d` не перезапускає вже працюючий
 # контейнер, тому зміни в конфігу не застосуються без явного restart.

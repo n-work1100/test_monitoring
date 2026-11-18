@@ -3,12 +3,13 @@ SHELL := /bin/bash
 PYTHON ?= python
 COMPOSE ?= docker compose
 
-.PHONY: help gen check validate up down restart logs ps deploy notify-test clean
+.PHONY: help gen check validate build up down restart logs ps deploy notify-test clean
 
 help:
 	@echo "make gen          - згенерувати конфіг Nagios з inventory/hosts.yml"
 	@echo "make check        - перевірити, що generated/ актуальний (як у CI)"
 	@echo "make validate     - nagios -v (потрібен Docker)"
+	@echo "make build        - перезібрати образи (після зміни Dockerfile)"
 	@echo "make up|down|logs - керування стеком"
 	@echo "make notify-test  - тестовий алерт у Telegram"
 	@echo "make deploy       - pull + gen + validate + restart (на Linux-хості)"
@@ -24,8 +25,11 @@ validate:
 	@test -f nagios/etc/resource.cfg || printf '$$USER1$$=/opt/nagios/libexec\n$$USER5$$=dummy\n' > nagios/etc/resource.cfg
 	$(COMPOSE) run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
 
+build:
+	$(COMPOSE) build
+
 up:
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d
 
 down:
 	$(COMPOSE) down

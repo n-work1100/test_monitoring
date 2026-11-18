@@ -11,7 +11,7 @@ git clone https://github.com/n-work1100/test_monitoring.git
 cd test_monitoring
 cp .env.example .env && nano .env      # SNMP_COMMUNITY; TG_TOKEN/TG_CHAT_ID — пізніше
 
-./tools/deploy.sh                      # pull + gen + resource.cfg + nagios -v + up
+bash tools/deploy.sh                   # pull + gen + resource.cfg + nagios -v + up + restart
 ```
 
 `deploy.sh` сам перевіряє передумови (docker, compose-plugin, `python3-yaml`), рендерить
@@ -29,13 +29,26 @@ UI: `http://<ip-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `na
 ## 2. Telegram-бот (5 хвилин)
 
 1. `@BotFather` → `/newbot` → отримати `TG_TOKEN`.
-2. Додати бота в групу NOC.
-3. Написати в групу будь-яке повідомлення, потім:
+2. Чат: або особистий чат з ботом (натиснути `Start`), або група NOC. У ботів увімкнений
+   privacy mode, тому в групі їх треба «розбудити»: надіслати `/start@<ваш_бот>` (або
+   вимкнути privacy у BotFather: `/setprivacy` → Disable → пере-додати бота).
+3. Отримати `chat_id` (для груп він від'ємний, напр. `-1001234567890`):
    ```bash
-   curl -s "https://api.telegram.org/bot$TG_TOKEN/getUpdates" | grep -E '"id"|"chat"'
+   set -a; . ./.env; set +a
+   curl -s "https://api.telegram.org/bot$TG_TOKEN/getUpdates" | python3 -c '
+   import sys, json
+   for r in json.load(sys.stdin).get("result", []):
+       m = r.get("message") or r.get("channel_post") or {}
+       c = m.get("chat") or {}
+       if c: print(c.get("id"), c.get("type"), c.get("title") or c.get("username") or c.get("first_name"))
+   '
    ```
-   Для груп `chat.id` від'ємний (напр. `-1001234567890`). Записати в `.env` → `TG_CHAT_ID`.
-4. Перевірка: `make notify-test`.
+   Порожній `result` означає, що бот ще не отримував повідомлень — напишіть йому і повторіть.
+4. Записати `TG_TOKEN`/`TG_CHAT_ID` у `.env` і **пересоздати** контейнер (env_file читається
+   лише при створенні): `docker compose up -d --force-recreate nagios`
+   (історія не втратиться — вона в томі `nagios-var`).
+5. Перевірка: `make notify-test`. Якщо тихо — `docker compose exec nagios bash -x /opt/nagios-config/tools/notify_telegram.sh service PROBLEM cam-lab-01 RTSP-554 CRITICAL "test" "$(date '+%F %T')"`
+   покаже відповідь Telegram (`chat not found` = невірний `chat_id`).
 
 ## 3. Перевірка, що моніторинг справді працює
 
@@ -51,13 +64,15 @@ docker compose exec nagios snmpget -v2c -c lab_ro_c0mm -r 1 -t 3 -On \
 # порти камери
 docker compose exec nagios /opt/nagios/libexec/check_tcp -H 172.30.0.21 -p 554
 
-# примусовий алерт: погасити симулятор і дочекатися CRITICAL (≈3 хв)
+# примусовий алерт: погасити симулятор і дочекатися DOWN (≈2-3 хв)
 docker compose stop sim-camera
-docker compose logs -f nagios | grep -i "cam-lab-01"
+# лог Nagios — це файл, не stdout контейнера:
+docker compose exec nagios tail -f /opt/nagios/var/nagios.log | grep --line-buffered 'cam-lab-01'
 docker compose start sim-camera
 ```
 
-Очікування: у Telegram прийде `🛑 CRITICAL cam-lab-01 / PING`, після старту — `✅ OK`.
+Очікування: у Telegram прийде `🛑 HOST DOWN cam-lab-01` (а не чотири сервісні — див. нижче),
+після старту — `✅ HOST UP … RECOVERY`.
 
 Якщо хоста немає (DOWN), сервісні нотифікації **не** надсилаються: ядро примусово
 переводить сервіси в HARD і шле лише один `HOST NOTIFICATION` — це штатна поведінка
@@ -94,11 +109,46 @@ docker compose exec nagios sh -c '
 ## 6. Відкат
 
 ```bash
-cd ~/nagios-snmp-lab
+cd ~/test_monitoring
 git log --oneline -n 10
 git revert <sha>          # або: git checkout <tag> -- nagios/etc
-./tools/deploy.sh
+bash tools/deploy.sh
 ```
 
 `deploy.sh` спочатку робить `nagios -v`; якщо конфіг зламаний — рестарту не буде,
 прод продовжує працювати на попередній валідній версії.
+
+Історія та статуси Nagios лежать у іменованому томі `nagios-var`, тому переживають
+`up --force-recreate` (напр. після зміни `.env`) і `docker compose down`.
+Видаляються лише `make clean` (`down -v`).
+
+## 7. Приймання (чек-лист)
+
+Пройдено на живій інсталяції 2026-11-18: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
+Nagios 4.5.12, 2 хости / 7 сервісів.
+
+| # | Перевірка | Команда | Очікування |
+|---|---|---|---|
+| 1 | Стек піднято | `docker compose ps` | 3× `Up`: nagios, sim-switch, sim-camera |
+| 2 | UI живий | `curl -sI localhost:8080/nagios/ \| head -1` | `HTTP/1.1 401 Unauthorized` |
+| 3 | ICMP | `docker compose exec nagios /opt/nagios/libexec/check_ping -H 172.30.0.11 -w 200,20% -c 500,60%` | `PING OK - Packet loss = 0%` |
+| 4 | SNMPv2c | `… check_snmp -H 172.30.0.11 -P 2c -C $COMM -o 1.3.6.1.2.1.1.3.0 -l Uptime -u ""` | `SNMP OK - Uptime Timeticks: …` |
+| 5 | Ідентичність | `… snmpget -v2c -c $COMM -On 172.30.0.11 1.3.6.1.2.1.1.5.0 2>/dev/null` | `STRING: "sim-switch"` |
+| 6 | Порти камери | `… check_tcp -H 172.30.0.21 -p 554` / `-p 80` | `TCP OK - 0.00x second response time` |
+| 7 | Негатив SNMP | `… check_snmp -H 172.30.0.11 -P 2c -C wrong_community -o 1.3.6.1.2.1.1.3.0 -t 5` | `CRITICAL - Plugin timed out` |
+| 8 | Негатив ICMP | `… check_ping -H 172.30.0.99 -w 200,20% -c 500,60%` | `CRITICAL - Host Unreachable` |
+| 9 | Реальна аварія | `docker compose stop sim-camera` (≈2-3 хв) | `HOST ALERT … DOWN;HARD;3` + `HOST NOTIFICATION` + 🛑 у Telegram |
+| 10 | Відновлення | `docker compose start sim-camera` (≈2-3 хв) | `HOST ALERT … UP` + `RECOVERY` + ✅ у Telegram |
+| 11 | Перезавантаження = WARNING | `docker compose restart sim-camera` | `SNMP-Uptime;WARNING` (0-5 хв), далі `OK`; **без** CRITICAL |
+| 12 | Telegram | `make notify-test` | 🛑 `CRITICAL cam-lab-01 / RTSP-554` |
+| 13 | TZ | `docker compose exec nagios date` | `EET`/`EEST`, не `UTC` |
+
+Єдине джерело істини — `nagios.log` (не `docker compose logs`: Nagios пише у файл):
+
+```bash
+docker compose exec nagios tail -n 300 /opt/nagios/var/nagios.log \
+  | grep -E 'cam-lab-01|NOTIFICATION' | tail -25
+```
+
+Очікувана послідовність під час падіння: `…;CRITICAL;SOFT;1` → `…;CRITICAL;HARD;3` →
+`HOST ALERT …;DOWN;HARD;3` → `HOST NOTIFICATION …;DOWN;…`, після старту — `UP` + `RECOVERY`.
