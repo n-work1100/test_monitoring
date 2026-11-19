@@ -124,8 +124,13 @@ bash tools/deploy.sh
 
 ## 7. Приймання (чек-лист)
 
-Пройдено на живій інсталяції 2026-11-18: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
+Перевірено на живій інсталяції 2026-11-18: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
 Nagios 4.5.12, 2 хости / 7 сервісів.
+
+**Стан: 13 з 13 підтверджено 19.11.2026.** Два останні пункти:
+- п.2 — `curl -sI localhost:8080/nagios/ | head -1` → `HTTP/1.1 401 Unauthorized`;
+- п.11 — `docker compose restart sim-camera` → `SNMP-Uptime;WARNING` (uptime 2:22),
+  далі `OK` (5:22), **без** `CRITICAL`.
 
 | # | Перевірка | Команда | Очікування |
 |---|---|---|---|

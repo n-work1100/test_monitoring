@@ -9,7 +9,7 @@
 | Протокол | **SNMPv2c** | підтримка камер/дешевих комутаторів |
 | Джерело правди | **Git** (`inventory/hosts.yml`) | навчальний масштаб; NetBox додається пізніше без зміни схеми |
 | Git-хостинг | **GitHub** + GitHub Actions | безкоштовний CI, PR-рев'ю як аудит змін |
-| Алерти | **Telegram** (webhook через `curl`) | безкоштовно, мобільно |
+| Алерти | **Telegram Bot API** (`curl`) | безкоштовно, мобільно |
 | Середовище | **Linux + Docker Compose** | одна команда на будь-якому хості |
 | Пристрої | **симулятори SNMP** (Docker) | реальних камер немає — вчимось на емуляторах |
 
@@ -41,6 +41,9 @@
 Ключове правило: **конфіг на проді руками не редагують**. Прод — це результат `git pull` +
 `tools/deploy.sh`. Будь-яка зміна проходить через PR і `nagios -v` у CI.
 
+Порядок деплою: `git pull` → `gen.py` → `resource.cfg` → `nagios -v` → `up -d` (без
+`--build`) → `restart nagios` (див. ADR-009). Якщо `nagios -v` падає — рестарту немає.
+
 ---
 
 ## 2. Швидкий старт (Ubuntu VM з попередніх сесій)
@@ -52,34 +55,87 @@ cd test_monitoring
 
 # 2. Налаштувати секрети (у Git НЕ потрапляють)
 cp .env.example .env
-nano .env            # SNMP_COMMUNITY (TG_TOKEN/TG_CHAT_ID — пізніше)
+nano .env            # SNMP_COMMUNITY + TG_TOKEN/TG_CHAT_ID (для алертів, див. 2.1)
 
 # 3. Підняти стек однією командою:
-#    pull -> gen -> resource.cfg -> nagios -v -> up
+#    pull -> gen -> resource.cfg -> nagios -v -> up -> restart
 sudo apt install -y python3-yaml     # потрібен генератору
-./tools/deploy.sh
-
-# 4. Перевірити вручну (опційно)
-docker compose run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
-curl -sI http://localhost:8080/nagios/ | head -1     # очікуємо 401
-
-# 5. Відкрити UI
-#    http://<ip-ubuntu-vm>:8080/nagios/   (логін nagiosadmin / nagios)
+bash tools/deploy.sh
 ```
 
-Очікуваний стан через 3–5 хв: `sw-lab-01` та `cam-lab-01` — **UP**, сервіси PING/SNMP-Uptime —
-**OK**, RTSP-554/WEB-80 на камері — **OK** (симулятор відкриває ці порти).
+`deploy.sh` сам перевіряє передумови (docker, compose-plugin, `python3-yaml`), рендерить
+`nagios/etc/resource.cfg` з `.env` (`644` — файл читають CGI під користувачем `nagios`) і
+**спочатку** виконує `nagios -v`; при помилці конфігу рестарту не буде.
 
-Перевірка Telegram без Nagios:
+UI: `http://<ip-ubuntu-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `nagios`
+(створюється при першому старті; змініть перед публічним доступом:
+`docker compose exec nagios htpasswd /opt/nagios/etc/htpasswd.users nagiosadmin`).
+
+Очікуваний стан через 3–5 хв: `sw-lab-01` та `cam-lab-01` — **UP**, 7 сервісів — **OK**
+(PING, SNMP-Uptime, SNMP-IfNumber; PING, SNMP-Uptime, RTSP-554, WEB-80).
+
+Перевірка «живий чи ні» без браузера:
 
 ```bash
-docker compose exec nagios /opt/nagios-config/tools/notify_telegram.sh \
-  service PROBLEM cam-lab-01 RTSP-554 CRITICAL "test alert" "$(date '+%F %T')"
+curl -sI http://localhost:8080/nagios/ | head -1     # очікуємо 401 Unauthorized
 ```
+
+### 2.1 Telegram (для алертів)
+
+1. `@BotFather` → `/newbot` → токен у `TG_TOKEN`.
+2. Написати боту `Start` (або додати в групу й надіслати `/start@<бот>`), отримати `chat_id`
+   через `getUpdates` → `TG_CHAT_ID` (у груп від'ємний).
+3. Записати обидві змінні в `.env` і пересоздати контейнер (env_file читається лише при
+   створенні): `docker compose up -d --force-recreate nagios` (історія в томі `nagios-var`).
+4. Перевірка: `make notify-test` → 🛑 `CRITICAL cam-lab-01 / RTSP-554`.
+
+Повна процедура й діагностика (`chat not found`, `401 Unauthorized`) — `docs/runbook.md` §2.
 
 ---
 
-## 3. Як додати пристрій (робочий процес)
+## 3. Результати (18.11.2026)
+
+Перевірено на живій інсталяції: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
+Nagios 4.5.12, **2 хости / 7 сервісів**.
+
+Сценарій реальної аварії (камера зупинена, потім піднята):
+
+- `stop sim-camera` → через ≈2–3 хв `SERVICE ALERT … CRITICAL;HARD;3`,
+  `HOST ALERT cam-lab-01;DOWN;HARD;3`, один `HOST NOTIFICATION` → 🛑 у Telegram;
+- `start sim-camera` → `HOST ALERT … UP` + `RECOVERY` → ✅ у Telegram;
+- сервісні нотифікації при DOWN хоста ядро подавляє (штатна поведінка `notifications.c`);
+- перезавантаження пристрою → `SNMP-Uptime;WARNING` (0–5 хв), без CRITICAL (ADR-007);
+  перевірено 19.11.2026: WARNING при uptime 2:22 → OK о 5:22.
+
+### Service Status Details
+
+![Service Status Details](docs/img/service-status-details.png)
+
+`cam-lab-01`: PING, RTSP-554, SNMP-Uptime, WEB-80; `sw-lab-01`: PING, SNMP-IfNumber,
+SNMP-Uptime. IP-адреси замасковано (`x.x.x.x`). Час на скріншоті — UTC: знято до
+застосування `TZ=Europe/Kyiv`.
+
+### Алерти в Telegram
+
+![Алерти в Telegram](docs/img/telegram-alerts.png)
+
+`make notify-test` (14:59), далі два цикли DOWN → UP (17:02/17:03 та 17:08/17:09).
+`SNMP-Uptime` о 17:03 ще показує CRITICAL — це стан **до** зміни порога на WARNING-only
+(коміт `01c6e6c`, 17:10).
+
+Скріншоти очищено перед публікацією: приватні IP замінено на `x.x.x.x`; токен бота й
+`chat_id` у кадр не потрапляють.
+
+### Стан приймання
+
+**13 з 13** пунктів чек-листа (`docs/runbook.md` §7) підтверджено станом на 19.11.2026.
+Два останні пункти закрито 19.11: п.2 — `curl -sI localhost:8080/nagios/ | head -1` →
+`HTTP/1.1 401 Unauthorized`; п.11 — `docker compose restart sim-camera` →
+`SNMP-Uptime;WARNING` (uptime 2:22), далі `OK` (5:22), **без** `CRITICAL`.
+
+---
+
+## 4. Як додати пристрій (робочий процес)
 
 1. Додати запис у `inventory/hosts.yml`:
 
@@ -94,26 +150,26 @@ docker compose exec nagios /opt/nagios-config/tools/notify_telegram.sh \
 2. `python tools/gen.py` — оновить `nagios/etc/conf.d/generated/`.
 3. `git checkout -b add-sw-kyiv-acc-02` → commit → push → **Pull Request**.
 4. CI: `nagios -v` + перевірка, що генеровані файли закомічені.
-5. Merge → на хості `./tools/deploy.sh` (або `make deploy`).
+5. Merge → на хості `bash tools/deploy.sh` (або `make deploy`).
 
 Прибрати пристрій з моніторингу, не видаляючи з SoT: `monitoring: false`.
 
 ---
 
-## 4. Що моніторимо
+## 5. Що моніторимо
 
 ### Комутатор (`role: switch`)
 | Сервіс | Команда | Сенс |
 |---|---|---|
 | PING | `check_ping` | доступність (ICMP) |
-| SNMP-Uptime | `check_snmp_uptime` | `sysUpTime` < 5 хв → перезавантаження |
+| SNMP-Uptime | `check_snmp_uptime` | `sysUpTime` < 5 хв → **WARNING** (перезавантаження) |
 | SNMP-IfNumber | `check_snmp_ifnumber` | SNMP відповідає, MIB цілий |
 
 ### IP-камера (`role: camera`)
 | Сервіс | Команда | Сенс |
 |---|---|---|
 | PING | `check_ping` | доступність |
-| SNMP-Uptime | `check_snmp_uptime` | перезавантаження камери |
+| SNMP-Uptime | `check_snmp_uptime` | перезавантаження камери (WARNING) |
 | RTSP-554 | `check_tcp!554` | основний стрім живий |
 | WEB-80 | `check_tcp!80` | веб-інтерфейс/ONVIF |
 
@@ -122,13 +178,15 @@ PING + SNMP-Uptime + RTSP-554.
 
 ### Алерти
 - `max_check_attempts 3` + `retry_interval 1` → короткі флапи не шумлять;
-- `first_notification_delay`/`notification_interval 60` → нагадування раз на годину;
+- `notification_interval 60` → нагадування раз на годину;
 - `hostdependency`: камера/NVR залежить від комутатора свого `site` → коли комутатор лежить,
-  Telegram не заспамлюється 20-ма «камера недоступна».
+  Telegram не заспамлюється 20-ма «камера недоступна»;
+- uptime-пороги задані **в тіках** (`-w 30000:`), бо `check_snmp` для Timeticks порівнює
+  число з дужок (1 тік = 1/100 с); CRITICAL вимкнено — рестарт не є аварією (ADR-007).
 
 ---
 
-## 5. Структура репозиторію
+## 6. Структура репозиторію
 
 ```
 test_monitoring/
@@ -136,9 +194,10 @@ test_monitoring/
 ├─ tools/
 │  ├─ gen.py                         # inventory -> nagios/etc/conf.d/generated
 │  ├─ notify_telegram.sh             # notification command
-│  └─ deploy.sh                      # pull + validate + restart (на Linux-хості)
+│  └─ deploy.sh                      # pull + validate + up + restart (на Linux-хості)
 ├─ nagios/etc/
 │  ├─ nagios.cfg                     # ядро
+│  ├─ cgi.cfg                        # обов'язковий: образ не створює його при bind-mount
 │  ├─ resource.cfg                   # ГЕНЕРУЄТЬСЯ deploy.sh (у .gitignore)
 │  └─ conf.d/
 │     ├─ 00-commands.cfg             # check_* + notify-*
@@ -153,29 +212,33 @@ test_monitoring/
 │  ├─ snmpd/                         # симулятор комутатора (net-snmp)
 │  └─ camera/                        # симулятор камери (snmpd + RTSP/80)
 ├─ .github/workflows/ci.yml          # nagios -v + актуальність генерації + gitleaks
-├─ docker-compose.yml
+├─ docker-compose.yml                # nagios + 2 симулятори; том nagios-var
 ├─ Makefile
 ├─ .env.example
 └─ docs/
-   ├─ decisions.md                   # ADR: чому саме так (відповіді -51.1)
-   └─ runbook.md                     # деплой, відкат, діагностика
+   ├─ decisions.md                   # 9 ADR: чому саме так
+   ├─ runbook.md                     # деплой, Telegram, діагностика, чек-лист
+   └─ img/                           # очищені скріншоти результатів
 ```
 
 ---
 
-## 6. Безпека SNMPv2c
+## 7. Безпека SNMPv2c
 
-- community **не в Git**: `.env` + `nagios/etc/resource.cfg` (створює `deploy.sh`, `chmod 600`).
+- community **не в Git**: `.env` + `nagios/etc/resource.cfg` (рендерить `deploy.sh`,
+  `chmod 644` — файл читають CGI під користувачем `nagios`, тому `600` ламає UI).
 - окрема мережа `172.30.0.0/24` = аналог VLAN моніторингу; на реальному обладнанні —
   ACL «дозволити UDP/161 лише з IP Nagios».
 - `public` не використовуємо, community — довгий випадковий рядок.
+- Telegram-токен і `chat_id` — лише в `.env`; у скріншотах і README їх немає.
 - CI має `gitleaks` → випадковий коміт із токеном падає на PR.
 - SNMPv3 (`authPriv`) — наступний крок, коли з'явиться обладнання з його підтримкою.
 
 ---
 
-## 7. Наступні кроки
+## 8. Наступні кроки
 
+- [x] Приймання **13/13** (19.11.2026, див. §3).
 - [ ] `check_nwc_health` (порти, помилки, CPU, PoE) для комутаторів — див. `docs/runbook.md`.
 - [ ] ffprobe-пробник «стрім живий і бітрейт у нормі» (SNMP цього не показує).
 - [ ] InfluxDB + Grafana для графіків.
