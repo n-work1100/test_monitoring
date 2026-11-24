@@ -1,8 +1,9 @@
 ##############################################################################
 # Nagios Core + симулятори SNMP-пристроїв (навчальна лабораторія)
 #
-#   docker compose up -d --build
-#   UI: http://localhost:8080/nagios/   (nagiosadmin / nagios)
+#   bash tools/deploy.sh     pull -> gen -> nagios -v -> up -d -> restart (ADR-009)
+#   UI: http://localhost:${NAGIOS_PORT:-8080}/nagios/   (nagiosadmin / nagios)
+#   Перезбірка образів — окремо: make build (не на кожному деплої)
 ##############################################################################
 
 services:
@@ -11,7 +12,9 @@ services:
     container_name: nagios
     restart: unless-stopped
     ports:
-      - "8080:80"
+      # Хост-порт задається NAGIOS_PORT у .env (дефолт 8080).
+      # 8080 часто зайнятий (напр. WordPress) — тоді в .env ставимо 8090.
+      - "${NAGIOS_PORT:-8080}:80"
     env_file:
       - .env
     environment:

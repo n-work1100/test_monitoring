@@ -42,7 +42,7 @@ EOF
 chmod 644 nagios/etc/resource.cfg
 
 echo "==> nagios -v (перевірка об'єктів)"
-$COMPOSE run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
+$COMPOSE run --rm --no-deps --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
 
 echo "==> (re)start stack"
 # Без --build: compose збирає образ лише тоді, коли його немає. Примусова
@@ -59,4 +59,4 @@ $COMPOSE restart nagios
 
 echo "==> стан"
 $COMPOSE ps
-echo "OK. UI: http://<host>:8080/nagios/"
+echo "OK. UI: http://<host>:${NAGIOS_PORT:-8080}/nagios/"

@@ -1,6 +1,6 @@
 # Лабораторія Nagios + SNMPv2c. Усі «небезпечні» цілі — лише через deploy.
 SHELL := /bin/bash
-PYTHON ?= python
+PYTHON ?= python3
 COMPOSE ?= docker compose
 
 .PHONY: help gen check validate build up down restart logs ps deploy notify-test clean
@@ -23,7 +23,7 @@ check: gen
 
 validate:
 	@test -f nagios/etc/resource.cfg || printf '$$USER1$$=/opt/nagios/libexec\n$$USER5$$=dummy\n' > nagios/etc/resource.cfg
-	$(COMPOSE) run --rm --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
+	$(COMPOSE) run --rm --no-deps --entrypoint nagios nagios -v /opt/nagios/etc/nagios.cfg
 
 build:
 	$(COMPOSE) build

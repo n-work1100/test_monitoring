@@ -70,6 +70,7 @@ bash tools/deploy.sh
 UI: `http://<ip-ubuntu-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `nagios`
 (створюється при першому старті; змініть перед публічним доступом:
 `docker compose exec nagios htpasswd /opt/nagios/etc/htpasswd.users nagiosadmin`).
+Порт задається `NAGIOS_PORT` у `.env`; якщо 8080 зайнятий (WordPress/phpMyAdmin) — напр. `8090`.
 
 Очікуваний стан через 3–5 хв: `sw-lab-01` та `cam-lab-01` — **UP**, 7 сервісів — **OK**
 (PING, SNMP-Uptime, SNMP-IfNumber; PING, SNMP-Uptime, RTSP-554, WEB-80).
@@ -77,7 +78,7 @@ UI: `http://<ip-ubuntu-vm>:8080/nagios/` — логін `nagiosadmin`, паро�
 Перевірка «живий чи ні» без браузера:
 
 ```bash
-curl -sI http://localhost:8080/nagios/ | head -1     # очікуємо 401 Unauthorized
+curl -sI "http://localhost:${NAGIOS_PORT:-8080}/nagios/" | head -1     # очікуємо 401 Unauthorized
 ```
 
 ### 2.1 Telegram (для алертів)
@@ -94,6 +95,11 @@ curl -sI http://localhost:8080/nagios/ | head -1     # очікуємо 401 Unau
 ---
 
 ## 3. Результати (18.11.2026)
+
+> **Історичний результат (стара VM).** Перевірено на попередній інсталяції: Ubuntu 26.04.1,
+> Docker 29.1.3, Compose v2.40.3, Nagios 4.5.12. На новій VM (2026-11-24, Docker 29.10.0,
+> Compose 5.8.0) усе перевіряється заново — до повторної приймання це не доказ
+> працездатності нової машини.
 
 Перевірено на живій інсталяції: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
 Nagios 4.5.12, **2 хости / 7 сервісів**.
@@ -225,11 +231,16 @@ test_monitoring/
 
 ## 7. Безпека SNMPv2c
 
-- community **не в Git**: `.env` + `nagios/etc/resource.cfg` (рендерить `deploy.sh`,
-  `chmod 644` — файл читають CGI під користувачем `nagios`, тому `600` ламає UI).
+- community **симуляторів** — навчальне значення `lab_ro_c0mm`. Воно свідомо лежить у Git
+  (`.env.example`, `sim/snmpd/snmpd.conf`, `sim/camera/snmpd.conf`) і мусить збігатися
+  в усіх трьох місцях, інакше SNMP-сервіси отримають `Timeout`.
+- для **реального** обладнання community — лише `.env` + `nagios/etc/resource.cfg`
+  (рендерить `deploy.sh`, `chmod 644` — файл читають CGI під користувачем `nagios`,
+  тому `600` ламає UI); `resource.cfg` у `.gitignore`, у Git не потрапляє.
 - окрема мережа `172.30.0.0/24` = аналог VLAN моніторингу; на реальному обладнанні —
   ACL «дозволити UDP/161 лише з IP Nagios».
-- `public` не використовуємо, community — довгий випадковий рядок.
+- `public` не використовуємо: для реальних пристроїв — довгий випадковий рядок
+  (`openssl rand -base64 24`), для симуляторів — фіксоване навчальне значення.
 - Telegram-токен і `chat_id` — лише в `.env`; у скріншотах і README їх немає.
 - CI має `gitleaks` → випадковий коміт із токеном падає на PR.
 - SNMPv3 (`authPriv`) — наступний крок, коли з'явиться обладнання з його підтримкою.

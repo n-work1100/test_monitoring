@@ -3,13 +3,23 @@
 ## 1. Перший запуск на Ubuntu VM
 
 ```bash
-sudo apt update
-sudo apt install -y docker.io docker-compose-v2 git python3-yaml
-sudo usermod -aG docker "$USER" && newgrp docker
+# Docker уже має бути встановлений (на навчальній VM — docker-ce з
+# download.docker.com: docker-ce + docker-compose-plugin). Перевірка:
+docker --version && docker compose version
+
+# Якщо Docker ще НЕ встановлений — ставимо з офіційного репозиторію Docker:
+#   https://docs.docker.com/engine/install/ubuntu/
+# НЕ використовуйте docker.io + docker-compose-v2 з репозиторію Ubuntu:
+# це інші (старіші) пакети, вони конфліктують із docker-ce.
+sudo apt install -y git make python3-yaml
+
+# Група docker: після цього ОБОВ'ЯЗКОВО перелогінитись (нова SSH-сесія).
+# `newgrp docker` у неінтерактивному скрипті не зараховується.
+sudo usermod -aG docker "$USER"
 
 git clone https://github.com/n-work1100/test_monitoring.git
 cd test_monitoring
-cp .env.example .env && nano .env      # SNMP_COMMUNITY; TG_TOKEN/TG_CHAT_ID — пізніше
+cp .env.example .env && nano .env      # SNMP_COMMUNITY, NAGIOS_PORT; TG_TOKEN/TG_CHAT_ID — пізніше
 
 bash tools/deploy.sh                   # pull + gen + resource.cfg + nagios -v + up + restart
 ```
@@ -21,8 +31,9 @@ bash tools/deploy.sh                   # pull + gen + resource.cfg + nagios -v +
 UI: `http://<ip-vm>:8080/nagios/` — логін `nagiosadmin`, пароль `nagios`
 (`nagios/etc/htpasswd.users` створюється автоматично при першому старті контейнера; змінити:
 `docker compose exec nagios htpasswd /opt/nagios/etc/htpasswd.users nagiosadmin`).
+Порт задається `NAGIOS_PORT` у `.env`; якщо 8080 зайнятий — напр. `8090`.
 
-Перевірка «живий чи ні» без браузера: `curl -sI http://localhost:8080/nagios/ | head -1`
+Перевірка «живий чи ні» без браузера: `curl -sI "http://localhost:${NAGIOS_PORT:-8080}/nagios/" | head -1`
 → очікуємо `HTTP/1.1 401 Unauthorized` (Apache просить логін; `500` = проблема CGI,
 `connection refused` = контейнер не піднявся).
 
@@ -96,8 +107,9 @@ docker compose start sim-camera
 ## 5. Додати `check_nwc_health` (порти, помилки, CPU, PoE)
 
 ```bash
+# Образ jasonrivers/nagios — Debian (apt), НЕ Alpine: apk тут не існує.
 docker compose exec nagios sh -c '
-  apk add --no-cache curl perl &&
+  apt-get update && apt-get install -y --no-install-recommends curl perl &&
   curl -fsSL -o /opt/nagios/libexec/check_nwc_health \
     https://raw.githubusercontent.com/lausser/check_nwc_health/master/check_nwc_health &&
   chmod +x /opt/nagios/libexec/check_nwc_health'
@@ -127,7 +139,11 @@ bash tools/deploy.sh
 Перевірено на живій інсталяції 2026-11-18: Ubuntu 26.04.1, Docker 29.1.3, Compose v2.40.3,
 Nagios 4.5.12, 2 хости / 7 сервісів.
 
-**Стан: 13 з 13 підтверджено 19.11.2026.** Два останні пункти:
+> **Історичний результат.** Цифри вище отримані на попередній VM. На новій VM
+> (2026-11-24, Docker 29.10.0, Compose 5.8.0) чек-лист перевіряється заново;
+> до повторного підтвердження це не гарантія працездатності.
+
+**Стан: 13 з 13 підтверджено 19.11.2026 (стара VM).** Два останні пункти:
 - п.2 — `curl -sI localhost:8080/nagios/ | head -1` → `HTTP/1.1 401 Unauthorized`;
 - п.11 — `docker compose restart sim-camera` → `SNMP-Uptime;WARNING` (uptime 2:22),
   далі `OK` (5:22), **без** `CRITICAL`.
