@@ -97,6 +97,7 @@ docker compose start sim-camera
 | `check_snmp: Timeout` | неправильний community або SNMP не дозволений з 172.30.0.0/24 | звірити `.env` ↔ `sim/*/snmpd.conf`; `docker compose exec nagios snmpget -v2c -c ...` |
 | `nagios -v`: `Error: Could not find any host matching ...` | у `generated/` лишилися старі файли після перейменування сайту | `rm -rf nagios/etc/conf.d/generated/* && python tools/gen.py` |
 | `resource.cfg` порожній / `$USER5$` невідомий | не виконано `deploy.sh` (він рендерить файл) | `./tools/deploy.sh` або `make validate` |
+| `nagios -v`: `Error: ... period '24x7' ... is not defined anywhere!` | немає `01-timeperiods.cfg` або він не підключений у `nagios.cfg` | перевірити `cfg_file=.../01-timeperiods.cfg` і `define timeperiod { timeperiod_name 24x7 ... }` |
 | Telegram мовчить | бот не в групі / `chat_id` неправильний / нотифікації не дозволені | перевірити `curl .../sendMessage` вручну; у `10-contacts.cfg` `*_notifications_enabled 1` |
 | алерти приходять пачкою при падінні комутатора | немає `hostdependency` | перевірити `generated/dependencies.cfg` (генерується за `site`) |
 | `snmpget` пише `Cannot find module (...MIB)`, `Bad operator (INTEGER)` | в образі неповний набір MIB (net-snmp у `jasonrivers/nagios`) | на діагностику не впливає: працюйте числовими OID (`-On`) і ховайте шум `2>/dev/null` |

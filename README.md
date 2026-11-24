@@ -207,6 +207,7 @@ test_monitoring/
 │  ├─ resource.cfg                   # ГЕНЕРУЄТЬСЯ deploy.sh (у .gitignore)
 │  └─ conf.d/
 │     ├─ 00-commands.cfg             # check_* + notify-*
+│     ├─ 01-timeperiods.cfg          # 24x7 (обов'язковий: без нього nagios -v падає)
 │     ├─ 05-templates.cfg            # generic-host, switch-host, camera-host...
 │     ├─ 10-contacts.cfg             # контакт/група NOC (Telegram)
 │     └─ generated/                  # АВТОГЕНЕРАЦІЯ, комітиться
